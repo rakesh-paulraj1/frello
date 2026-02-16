@@ -1,0 +1,12 @@
+/* Google Font first */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+
+/* Tailwind directives */
+@import "tailwindcss";
+
+/* Base layer override */
+@layer base {
+  body {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+  }
+}
