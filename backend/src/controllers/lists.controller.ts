@@ -1,23 +1,230 @@
-import { Request, Response } from 'express';
+import { Request, Response } from "express";
+import { prisma } from "../config/prisma";
+import { logActivity } from "../services/activity.service";
+import { broadcastToBoard } from "../ws/wsServer";
 
 export class ListsController {
   async list(req: Request, res: Response) {
-    res.json({ data: [], message: 'list lists - implement' });
+    const boardId = req.params.boardId;
+    if (!boardId) return res.status(400).json({ error: "boardId is required" });
+    try {
+      const lists = await prisma.list.findMany({
+        where: { boardId },
+        orderBy: { position: "asc" },
+      });
+      res.json({ data: lists });
+    } catch (err) {
+      res.status(500).json({ error: "Internal server error." });
+    }
   }
 
   async create(req: Request, res: Response) {
-    res.status(201).json({ data: null, message: 'create list - implement' });
+    const userAny = (req as any).user;
+    if (!userAny) return res.status(401).json({ error: "Unauthorized" });
+    const boardId = req.params.boardId;
+    const { title } = req.body;
+    if (!boardId) return res.status(400).json({ error: "boardId is required" });
+    if (!title) return res.status(400).json({ error: "Title is required." });
+    try {
+      const board = await prisma.board.findUnique({ where: { id: boardId } });
+      if (!board) return res.status(404).json({ error: "Board not found." });
+      if (board.ownerId !== userAny.id)
+        return res.status(403).json({ error: "Forbidden." });
+
+      const maxPos = await prisma.list.aggregate({
+        where: { boardId },
+        _max: { position: true },
+      });
+      const nextPos = (maxPos._max.position ?? -1) + 1;
+
+      const list = await prisma.list.create({
+        data: { title, boardId, position: nextPos },
+      });
+
+      // Broadcast
+      broadcastToBoard(boardId, {
+        type: "LIST_CREATED",
+        boardId,
+        actorId: userAny.id,
+        payload: list,
+      });
+
+      try {
+        await logActivity({
+          boardId: board.id,
+          userId: userAny.id,
+          actionType: "CREATED",
+          entityType: "LIST",
+          entityId: list.id,
+          metadata: { title, position: nextPos },
+        });
+      } catch (e) {
+        console.error("Failed to log activity for list.create", e);
+      }
+      res.status(201).json(list);
+    } catch (err) {
+      res.status(500).json({ error: "Internal server error." });
+    }
   }
 
   async update(req: Request, res: Response) {
-    res.json({ data: null, message: 'update list - implement' });
+    const userAny = (req as any).user;
+    if (!userAny) return res.status(401).json({ error: "Unauthorized" });
+    const id = req.params.id;
+    const { title } = req.body;
+    if (!id) return res.status(400).json({ error: "id is required" });
+    if (!title) return res.status(400).json({ error: "Title is required." });
+    try {
+      const list = await prisma.list.findUnique({
+        where: { id },
+        include: { board: true },
+      });
+      if (!list) return res.status(404).json({ error: "List not found." });
+      if (list.board.ownerId !== userAny.id)
+        return res.status(403).json({ error: "Forbidden." });
+      const updated = await prisma.list.update({
+        where: { id },
+        data: { title },
+      });
+
+      // Broadcast
+      broadcastToBoard(list.boardId, {
+        type: "LIST_UPDATED",
+        boardId: list.boardId,
+        actorId: userAny.id,
+        payload: updated,
+      });
+
+      try {
+        await logActivity({
+          boardId: list.boardId,
+          userId: userAny.id,
+          actionType: "UPDATED",
+          entityType: "LIST",
+          entityId: updated.id,
+          metadata: { title },
+        });
+      } catch (e) {
+        console.error("Failed to log activity for list.update", e);
+      }
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: "Internal server error." });
+    }
   }
 
   async remove(req: Request, res: Response) {
-    res.status(204).send();
+    const userAny = (req as any).user;
+    if (!userAny) return res.status(401).json({ error: "Unauthorized" });
+    const id = req.params.id;
+    if (!id) return res.status(400).json({ error: "id is required" });
+    try {
+      const list = await prisma.list.findUnique({
+        where: { id },
+        include: { board: true },
+      });
+      if (!list) return res.status(404).json({ error: "List not found." });
+      if (list.board.ownerId !== userAny.id)
+        return res.status(403).json({ error: "Forbidden." });
+      await prisma.list.delete({ where: { id } });
+
+      // Broadcast
+      broadcastToBoard(list.boardId, {
+        type: "LIST_DELETED",
+        boardId: list.boardId,
+        actorId: userAny.id,
+        payload: { id, boardId: list.boardId },
+      });
+
+      try {
+        await logActivity({
+          boardId: list.boardId,
+          userId: userAny.id,
+          actionType: "DELETED",
+          entityType: "LIST",
+          entityId: id,
+          metadata: { title: list.title },
+        });
+      } catch (e) {
+        console.error("Failed to log activity for list.delete", e);
+      }
+      res.status(204).send();
+    } catch (err) {
+      res.status(500).json({ error: "Internal server error." });
+    }
   }
 
   async reorder(req: Request, res: Response) {
-    res.json({ message: 'reorder list - implement' });
+    const userAny = (req as any).user;
+    if (!userAny) return res.status(401).json({ error: "Unauthorized" });
+    const id = req.params.id;
+    const { position } = req.body as { position?: number };
+    if (position === undefined || position === null)
+      return res.status(400).json({ error: "position is required" });
+    try {
+      const list = await prisma.list.findUnique({
+        where: { id },
+        include: { board: true },
+      });
+      if (!list) return res.status(404).json({ error: "List not found." });
+      if (list.board.ownerId !== userAny.id)
+        return res.status(403).json({ error: "Forbidden." });
+
+      const listsCount = await prisma.list.count({
+        where: { boardId: list.boardId },
+      });
+      const newPos = Math.max(0, Math.min(position, listsCount - 1));
+      const oldPos = list.position;
+      if (newPos === oldPos) return res.json({ message: "No change" });
+
+      if (newPos < oldPos) {
+        await prisma.$transaction([
+          prisma.list.updateMany({
+            where: {
+              boardId: list.boardId,
+              position: { gte: newPos, lt: oldPos },
+            },
+            data: { position: { increment: 1 } } as any,
+          }),
+          prisma.list.update({ where: { id }, data: { position: newPos } }),
+        ]);
+      } else {
+        await prisma.$transaction([
+          prisma.list.updateMany({
+            where: {
+              boardId: list.boardId,
+              position: { gt: oldPos, lte: newPos },
+            },
+            data: { position: { decrement: 1 } } as any,
+          }),
+          prisma.list.update({ where: { id }, data: { position: newPos } }),
+        ]);
+      }
+
+      // Broadcast
+      broadcastToBoard(list.boardId, {
+        type: "LIST_REORDERED",
+        boardId: list.boardId,
+        actorId: userAny.id,
+        payload: { id, boardId: list.boardId, position: newPos },
+      });
+
+      try {
+        await logActivity({
+          boardId: list.boardId,
+          userId: userAny.id,
+          actionType: "MOVED",
+          entityType: "LIST",
+          entityId: id,
+          metadata: { from: oldPos, to: newPos, listTitle: list.title },
+        });
+      } catch (e) {
+        console.error("Failed to log activity for list.reorder", e);
+      }
+
+      res.json({ message: "Reordered" });
+    } catch (err) {
+      res.status(500).json({ error: "Internal server error." });
+    }
   }
 }

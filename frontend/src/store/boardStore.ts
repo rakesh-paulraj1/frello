@@ -3,6 +3,7 @@ import { immer } from "zustand/middleware/immer";
 import { boardService, type Board } from "../services/boardService";
 import { useListStore } from "./listStore";
 import { useTaskStore } from "./taskStore";
+import type { WsEvent, BoardUpdatedPayload } from "../types/wsEvents";
 
 interface BoardState {
   boards: Board[];
@@ -10,13 +11,24 @@ interface BoardState {
   isLoading: boolean;
   error: string | null;
 
+  editedBoardTitle: string;
+  isEditingBoardTitle: boolean;
+  isSwitcherOpen: boolean;
+  isCreateDialogOpen: boolean;
+
   fetchBoards: () => Promise<void>;
   fetchBoard: (id: string) => Promise<void>;
   createBoard: (title: string) => Promise<Board | null>;
   updateBoard: (id: string, data: { title: string }) => Promise<void>;
   deleteBoard: (id: string) => Promise<void>;
 
-  // Utility
+  setIsEditingBoardTitle: (value: boolean) => void;
+  setEditedBoardTitle: (title: string) => void;
+  setIsSwitcherOpen: (value: boolean) => void;
+  setIsCreateDialogOpen: (value: boolean) => void;
+
+  applyWsEvent: (event: WsEvent) => void;
+
   clearError: () => void;
 }
 
@@ -26,6 +38,17 @@ export const useBoardStore = create<BoardState>()(
     currentBoard: null,
     isLoading: false,
     error: null,
+
+    // UI State initial values
+    isEditingBoardTitle: false,
+    editedBoardTitle: "",
+    isSwitcherOpen: false,
+    isCreateDialogOpen: false,
+
+    setIsEditingBoardTitle: (value) => set({ isEditingBoardTitle: value }),
+    setEditedBoardTitle: (title) => set({ editedBoardTitle: title }),
+    setIsSwitcherOpen: (value) => set({ isSwitcherOpen: value }),
+    setIsCreateDialogOpen: (value) => set({ isCreateDialogOpen: value }),
 
     fetchBoards: async () => {
       set({ isLoading: true, error: null });
@@ -38,11 +61,9 @@ export const useBoardStore = create<BoardState>()(
       }
     },
 
-    // Fetch single board with lists and tasks (coordinated)
     fetchBoard: async (id: string) => {
       set({ isLoading: true, error: null });
       try {
-        // 1. Fetch Board Metadata
         const data = (await boardService.getBoard(id)) as unknown as Record<
           string,
           unknown
@@ -51,16 +72,11 @@ export const useBoardStore = create<BoardState>()(
 
         set({
           currentBoard: normalizedBoard,
-          // Keep loading true until everything is fetched?
-          // Or let components handle their own loading?
-          // Let's keep it true to prevent flickering of empty board
         });
 
-        // 2. Fetch Lists via ListStore
         await useListStore.getState().fetchLists(id);
         const lists = useListStore.getState().lists;
 
-        // 3. Fetch Tasks via TaskStore (Parallel)
         await Promise.all(
           lists.map((list) => useTaskStore.getState().fetchTasks(list.id)),
         );
@@ -76,7 +92,6 @@ export const useBoardStore = create<BoardState>()(
       }
     },
 
-    // Create new board
     createBoard: async (title: string) => {
       set({ error: null });
       try {
@@ -92,19 +107,19 @@ export const useBoardStore = create<BoardState>()(
       }
     },
 
-    // Update board
     updateBoard: async (id: string, data: { title: string }) => {
       const { currentBoard } = get();
       if (!currentBoard) return;
 
-      // Optimistic update
       const previousBoard = { ...currentBoard };
 
       set((state) => {
         if (state.currentBoard) {
           state.currentBoard.title = data.title;
         }
-        // Update in list
+        if (state.currentBoard) {
+          state.currentBoard.title = data.title;
+        }
         const b = state.boards.find((b) => b.id === id);
         if (b) b.title = data.title;
       });
@@ -124,7 +139,6 @@ export const useBoardStore = create<BoardState>()(
           }
         });
       } catch (error) {
-        // Rollback
         set((state) => {
           state.currentBoard = previousBoard;
           const index = state.boards.findIndex((b) => b.id === id);
@@ -137,7 +151,6 @@ export const useBoardStore = create<BoardState>()(
       }
     },
 
-    // Delete board
     deleteBoard: async (id: string) => {
       const { boards } = get();
       const previousBoards = [...boards];
@@ -152,11 +165,23 @@ export const useBoardStore = create<BoardState>()(
       try {
         await boardService.deleteBoard(id);
       } catch (error) {
-        // Rollback
         set({ boards: previousBoards, error: "Failed to delete board" });
         console.error("Failed to delete board:", error);
       }
     },
+
+    applyWsEvent: (event) =>
+      set((state) => {
+        if (event.type === "BOARD_UPDATED") {
+          const { id, title } = event.payload as unknown as BoardUpdatedPayload;
+          if (state.currentBoard?.id === id) {
+            state.currentBoard.title = title;
+            state.editedBoardTitle = title;
+          }
+          const boardIdx = state.boards.findIndex((b) => b.id === id);
+          if (boardIdx !== -1) state.boards[boardIdx].title = title;
+        }
+      }),
 
     clearError: () => set({ error: null }),
   })),

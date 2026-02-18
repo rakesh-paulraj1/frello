@@ -33,13 +33,21 @@ export interface MoveTaskRequest {
 }
 
 export const taskService = {
-  // Get all tasks for a list
+ 
   getTasks: async (listId: string): Promise<Task[]> => {
     const response = await api.get<{ data: Task[] }>(`/lists/${listId}/tasks`);
     return response.data.data;
   },
 
-  // Create a new task in a list
+  searchTasks: async (boardId: string, query?: string): Promise<Task[]> => {
+    const params = query ? { q: query } : {};
+    const response = await api.get<{ data: Task[] }>(
+      `/boards/${boardId}/tasks`,
+      { params },
+    );
+    return response.data.data;
+  },
+
   createTask: async (
     listId: string,
     title: string,

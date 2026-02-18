@@ -7,6 +7,8 @@ import Dashboard from "./pages/Dashboard";
 import BoardPage from "./pages/Board";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
+import ToastContainer from "./components/Toast";
+import ConfirmDialog from "./components/ConfirmDialog";
 import './App.css'
 
 const router = createBrowserRouter([
@@ -44,14 +46,12 @@ function App() {
 
   useEffect(() => {
     const checkSession = async () => {
-      // If we already have a persisted user, trust it and skip session check
-      // The cookie will be sent with API requests automatically
       if (user) {
         setIsCheckingSession(false);
         return;
       }
 
-      // Only check session if we don't have a persisted user
+
       try {
         const userData = await authService.checkSession();
         setAuth(userData);
@@ -73,7 +73,13 @@ function App() {
     return <div className="min-h-screen flex items-center justify-center bg-[#efe5df]">Loading...</div>;
   }
 
-  return <RouterProvider router={router} />
+  return (
+    <>
+      <RouterProvider router={router} />
+      <ToastContainer />
+      <ConfirmDialog />
+    </>
+  );
 }
 
 export default App

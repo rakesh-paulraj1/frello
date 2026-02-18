@@ -6,6 +6,7 @@ const router = Router();
 const ctrl = new TasksController();
 
 router.get('/lists/:listId/tasks', passport.authenticate('jwt', { session: false }), ctrl.list.bind(ctrl));
+router.get('/boards/:boardId/tasks', passport.authenticate('jwt', { session: false }), ctrl.listByBoard.bind(ctrl));
 router.post('/lists/:listId/tasks', passport.authenticate('jwt', { session: false }), ctrl.create.bind(ctrl));
 router.get('/tasks/:id', passport.authenticate('jwt', { session: false }), ctrl.get.bind(ctrl));
 router.put('/tasks/:id', passport.authenticate('jwt', { session: false }), ctrl.update.bind(ctrl));

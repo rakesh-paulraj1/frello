@@ -3,13 +3,22 @@ import { immer } from "zustand/middleware/immer";
 import { taskService, type Task } from "../services/taskService";
 import { useListStore } from "./listStore";
 import { move } from "@dnd-kit/helpers";
+import type {
+  WsEvent,
+  TaskPayload,
+  TaskMovedPayload,
+  TaskAssignmentPayload,
+  TaskDeletedPayload,
+} from "../types/wsEvents";
 
 interface TaskState {
-  tasks: Record<string, Task[]>; // Map listId -> tasks
+  tasks: Record<string, Task[]>;
   isLoading: boolean;
   error: string | null;
 
-  // Actions
+  selectedTask: Task | null;
+  isTaskDialogOpen: boolean;
+
   setTasks: (listId: string, tasks: Task[]) => void;
   setAllTasks: (tasksMap: Record<string, Task[]>) => void;
 
@@ -31,10 +40,13 @@ interface TaskState {
     position: number,
   ) => Promise<void>;
 
-  // Drag operations
   handleDragOver: (event: any) => void;
 
-  // Utility
+  openTaskDialog: (task: Task) => void;
+  closeTaskDialog: () => void;
+
+  applyWsEvent: (event: WsEvent) => void;
+
   clearError: () => void;
 }
 
@@ -43,6 +55,13 @@ export const useTaskStore = create<TaskState>()(
     tasks: {},
     isLoading: false,
     error: null,
+
+    selectedTask: null,
+    isTaskDialogOpen: false,
+
+    openTaskDialog: (task) =>
+      set({ selectedTask: task, isTaskDialogOpen: true }),
+    closeTaskDialog: () => set({ selectedTask: null, isTaskDialogOpen: false }),
 
     setTasks: (listId, tasks) => {
       set((state) => {
@@ -57,8 +76,6 @@ export const useTaskStore = create<TaskState>()(
     },
 
     fetchTasks: async (listId) => {
-      // Don't set global isLoading for single list fetch as it might flicker too much
-      // or we can add a loading state per list if needed
       try {
         const tasks = await taskService.getTasks(listId);
         set((state) => {
@@ -66,7 +83,6 @@ export const useTaskStore = create<TaskState>()(
         });
       } catch (error) {
         console.error(`Failed to fetch tasks for list ${listId}:`, error);
-        // Don't set global error for background fetches
       }
     },
 
@@ -90,14 +106,12 @@ export const useTaskStore = create<TaskState>()(
     },
 
     updateTask: async (taskId, data) => {
-      // Find task
       let listId = "";
       let taskIndex = -1;
       let previousTask: Task | null = null;
 
       const { tasks } = get();
 
-      // Search in all lists
       for (const [lId, taskList] of Object.entries(tasks)) {
         const idx = taskList.findIndex((t) => t.id === taskId);
         if (idx !== -1) {
@@ -110,7 +124,6 @@ export const useTaskStore = create<TaskState>()(
 
       if (!previousTask || !listId) return;
 
-      // Optimistic update
       set((state) => {
         const task = state.tasks[listId][taskIndex];
         if (task) {
@@ -124,7 +137,6 @@ export const useTaskStore = create<TaskState>()(
       try {
         await taskService.updateTask(taskId, data);
       } catch (error) {
-        // Rollback
         set((state) => {
           if (state.tasks[listId]) {
             state.tasks[listId][taskIndex] = previousTask!;
@@ -136,7 +148,6 @@ export const useTaskStore = create<TaskState>()(
     },
 
     deleteTask: async (taskId) => {
-      // Find task
       let listId = "";
       let taskIndex = -1;
       let previousTask: Task | null = null;
@@ -155,7 +166,6 @@ export const useTaskStore = create<TaskState>()(
 
       if (!previousTask || !listId) return;
 
-      // Optimistic update
       set((state) => {
         if (state.tasks[listId]) {
           state.tasks[listId] = state.tasks[listId].filter(
@@ -167,7 +177,6 @@ export const useTaskStore = create<TaskState>()(
       try {
         await taskService.deleteTask(taskId);
       } catch (error) {
-        // Rollback
         set((state) => {
           if (state.tasks[listId]) {
             state.tasks[listId].splice(taskIndex, 0, previousTask!);
@@ -179,57 +188,58 @@ export const useTaskStore = create<TaskState>()(
     },
 
     moveTask: async (taskId, fromListId, toListId, position) => {
-      // Optimistic update: move task locally first
-      const prevFrom = get().tasks[fromListId] ? [...get().tasks[fromListId]] : [];
-      const prevTo = get().tasks[toListId] ? [...get().tasks[toListId]] : [];
+      const currentTasks = get().tasks;
+      const prevFrom = currentTasks[fromListId]
+        ? [...currentTasks[fromListId]]
+        : [];
+      const prevTo = currentTasks[toListId] ? [...currentTasks[toListId]] : [];
 
-      set((state) => {
-        // Ensure both lists exist
-        if (!state.tasks[fromListId]) state.tasks[fromListId] = [];
-        if (!state.tasks[toListId]) state.tasks[toListId] = [];
-
-        // Find and remove the task from the source list
-        let movingTask: Task | undefined;
-        const idx = state.tasks[fromListId].findIndex((t) => t.id === taskId);
+      let movingTask: Task | null = null;
+      let locatedFrom = fromListId;
+      if (currentTasks[fromListId]) {
+        const idx = currentTasks[fromListId].findIndex((t) => t.id === taskId);
         if (idx !== -1) {
-          movingTask = state.tasks[fromListId].splice(idx, 1)[0];
-        } else {
-          // Fallback: search all lists
-          for (const [lId, arr] of Object.entries(state.tasks)) {
-            const i = arr.findIndex((t) => t.id === taskId);
-            if (i !== -1) {
-              movingTask = state.tasks[lId].splice(i, 1)[0];
-              break;
-            }
+          movingTask = { ...currentTasks[fromListId][idx] };
+        }
+      }
+      if (!movingTask) {
+        for (const [lId, arr] of Object.entries(currentTasks)) {
+          const i = arr.findIndex((t) => t.id === taskId);
+          if (i !== -1) {
+            locatedFrom = lId;
+            movingTask = { ...arr[i] };
+            break;
           }
         }
+      }
 
-        if (!movingTask) return;
+      if (!movingTask) return;
 
-        // Update task's listId and insert into destination
-        movingTask.listId = toListId;
+      set((state) => {
+        if (!state.tasks[locatedFrom]) state.tasks[locatedFrom] = [];
+        if (!state.tasks[toListId]) state.tasks[toListId] = [];
+
+        Object.keys(state.tasks).forEach((lId) => {
+          state.tasks[lId] = state.tasks[lId].filter((t) => t.id !== taskId);
+        });
+
         const dest = state.tasks[toListId];
+        movingTask!.listId = toListId;
         const pos = Math.max(0, Math.min(position, dest.length));
-        dest.splice(pos, 0, movingTask);
+        dest.splice(pos, 0, movingTask!);
       });
 
       try {
         await taskService.moveTask(taskId, toListId, position);
 
-        // Persisted on server — update local positions to match new order
         set((state) => {
-          const fromArr = state.tasks[fromListId] || [];
-          const toArr = state.tasks[toListId] || [];
-
-          fromArr.forEach((t, i) => {
-            t.position = i;
-          });
-          toArr.forEach((t, i) => {
-            t.position = i;
+          Object.keys(state.tasks).forEach((lId) => {
+            state.tasks[lId].forEach((t, i) => {
+              t.position = i;
+            });
           });
         });
       } catch (error) {
-        // Revert optimistic update
         set((state) => {
           state.tasks[fromListId] = prevFrom;
           state.tasks[toListId] = prevTo;
@@ -240,18 +250,16 @@ export const useTaskStore = create<TaskState>()(
     },
 
     handleDragOver: (event: any) => {
+      const { lists } = useListStore.getState();
+
       set((state) => {
-        // Ensure all lists exist in the tasks map so empty lists accept drops
-        const { lists } = useListStore.getState();
         lists.forEach((l) => {
           if (!state.tasks[l.id]) state.tasks[l.id] = [];
         });
 
         try {
-          // move helper expects { [key]: array } which matches our state.tasks structure exactly
           const newTasks = move(state.tasks, event);
 
-          // Update state with new structure and normalize listId on each task
           Object.keys(newTasks).forEach((listId) => {
             state.tasks[listId] = newTasks[listId].map((task) => ({
               ...task,
@@ -259,10 +267,94 @@ export const useTaskStore = create<TaskState>()(
             }));
           });
         } catch (err) {
-          // If move fails, log and skip optimistic update
-          console.error('handleDragOver move failed:', err, event);
+          console.error("handleDragOver move failed:", err, event);
         }
       });
+    },
+
+    applyWsEvent: async (event) => {
+      const p = event.payload as unknown;
+
+      switch (event.type) {
+        case "TASK_CREATED": {
+          const task = p as TaskPayload;
+          set((s) => {
+            if (!s.tasks[task.listId]) s.tasks[task.listId] = [];
+            if (!s.tasks[task.listId].find((t) => t.id === task.id)) {
+              s.tasks[task.listId].push(task as unknown as Task);
+            }
+          });
+          break;
+        }
+        case "TASK_UPDATED": {
+          const task = p as TaskPayload;
+          set((s) => {
+            for (const list of Object.values(s.tasks)) {
+              const idx = list.findIndex((t) => t.id === task.id);
+              if (idx !== -1) {
+                list[idx] = { ...list[idx], ...task };
+                break;
+              }
+            }
+          });
+          break;
+        }
+        case "TASK_DELETED": {
+          const { id } = p as TaskDeletedPayload;
+          set((s) => {
+            for (const listId of Object.keys(s.tasks)) {
+              s.tasks[listId] = s.tasks[listId].filter((t) => t.id !== id);
+            }
+          });
+          break;
+        }
+        case "TASK_MOVED": {
+          const { id, toListId, position } = p as TaskMovedPayload;
+          set((s) => {
+            let movingTask: Task | null = null;
+            for (const list of Object.values(s.tasks)) {
+              const idx = list.findIndex((t) => t.id === id);
+              if (idx !== -1) {
+                movingTask = { ...list[idx] };
+                break;
+              }
+            }
+            if (!movingTask) return;
+
+            for (const lId of Object.keys(s.tasks)) {
+              s.tasks[lId] = s.tasks[lId].filter((t) => t.id !== id);
+            }
+
+            if (!s.tasks[toListId]) s.tasks[toListId] = [];
+            movingTask.listId = toListId;
+            const pos = Math.max(
+              0,
+              Math.min(position, s.tasks[toListId].length),
+            );
+            s.tasks[toListId].splice(pos, 0, movingTask);
+          });
+          break;
+        }
+        case "TASK_ASSIGNED":
+        case "TASK_UNASSIGNED": {
+          const { taskId } = p as TaskAssignmentPayload;
+          try {
+            const updatedTask = await taskService.getTask(taskId);
+            set((s) => {
+              for (const list of Object.values(s.tasks)) {
+                const idx = list.findIndex((t) => t.id === taskId);
+                if (idx !== -1) {
+                  list[idx] = updatedTask;
+                  break;
+                }
+              }
+            });
+          } catch (e) {
+            // Ignore failure
+          }
+          break;
+        }
+      }
     },
 
     clearError: () => set({ error: null }),

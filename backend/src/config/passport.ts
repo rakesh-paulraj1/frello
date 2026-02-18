@@ -44,6 +44,7 @@ passport.use(
       if (!match) return done(null, false, { message: 'Incorrect email or password.' });
       return done(null, user);
     } catch (err) {
+      console.error('LocalStrategy error:', err);
       return done(err as any);
     }
   }) as unknown as any

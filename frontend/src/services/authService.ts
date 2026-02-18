@@ -28,9 +28,8 @@ export const authService = {
   },
 
   logout: async (): Promise<void> => {
-    // Backend manages cookies
-    // If you have a logout endpoint, call it here to clear the cookie
-    // await api.post('/logout');
+    const response = await api.post<void>("/auth/logout");
+    return response.data;
   },
 
   checkSession: async (): Promise<User> => {

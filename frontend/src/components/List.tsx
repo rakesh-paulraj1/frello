@@ -1,58 +1,52 @@
 import { useState, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/react/sortable';
-import {CollisionPriority} from '@dnd-kit/abstract';
+import { CollisionPriority } from '@dnd-kit/abstract';
 import Button from './Button';
 import TaskCard from './TaskCard';
-import TaskDialog from './TaskDialog';
 import { type List as ListType } from '../services/listService';
 import { type Task as TaskType } from '../services/taskService';
 import { useListStore } from '../store/listStore';
 import { useTaskStore } from '../store/taskStore';
+import { confirm } from '../store/confirmStore';
 
 interface ListProps {
   list: ListType;
   tasks: TaskType[];
   index: number;
-  activeGroup: string | null;
-  activeDragType?: string | null;
-  onOverChange?: (listId: string, isOver: boolean) => void;
-  containerRef?: React.Ref<HTMLDivElement>;
 }
 
-export default function List({
-  list,
-  tasks,
-  index,
-  activeGroup,
-  activeDragType,
-  onOverChange,
-  containerRef,
-}: ListProps) {
+export default function List({ list, tasks, index }: ListProps) {
   const { updateList, deleteList } = useListStore();
-  const { createTask, updateTask, deleteTask } = useTaskStore();
+  const { createTask, openTaskDialog, activeGroup, activeDragType } = {
+    ...useTaskStore(),
+    ...useListStore(),
+  };
+
+  const { ref: sortableRef, isDropTarget } = useSortable({
+    id: list.id,
+    index,
+    type: 'column',
+    accept: ['column', 'task'],
+    collisionPriority: CollisionPriority.Low,
+    data: { type: 'column', listId: list.id },
+  });
+
   
- // Fix - add accept
-const { ref: sortableRef, isDropTarget } = useSortable({ 
-  id: list.id, 
-  index,
-  type: 'column',
-  accept: ['column', 'task'],  // Accept tasks so empty columns are valid drop targets
-  collisionPriority: CollisionPriority.Low,
-  data: { type: 'column', listId: list.id },
-});
-
-
-  const isOverTaskArea = isDropTarget && (activeGroup ? activeGroup === list.id : true);
-
+  const { setActiveGroup } = useListStore();
   useEffect(() => {
-    if (onOverChange) onOverChange(list.id, Boolean(isDropTarget));
-  }, [isDropTarget, list.id, onOverChange]);
-  
+    if (isDropTarget) {
+      setActiveGroup(list.id);
+    }
+  }, [isDropTarget, list.id, setActiveGroup]);
+
+  const isOverTaskArea =
+    isDropTarget && (activeDragType === 'task' || activeDragType === null)
+      ? activeGroup === list.id || isDropTarget
+      : false;
+
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<TaskType | null>(null);
-  const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(list.title);
 
@@ -73,13 +67,7 @@ const { ref: sortableRef, isDropTarget } = useSortable({
   };
 
   const handleTaskClick = (task: TaskType) => {
-    setSelectedTask(task);
-    setIsTaskDialogOpen(true);
-  };
-
-  const handleCloseDialog = () => {
-    setIsTaskDialogOpen(false);
-    setSelectedTask(null);
+    openTaskDialog(task);
   };
 
   const handleSaveTitle = async () => {
@@ -93,21 +81,14 @@ const { ref: sortableRef, isDropTarget } = useSortable({
     setIsEditingTitle(false);
   };
 
-  const handleDeleteList = () => {
-    if (confirm(`Are you sure you want to delete the list "${list.title}"?`)) {
-      deleteList(list.id);
-    }
-  };
-
-  const handleUpdateTask = async (task: TaskType) => {
-    await updateTask(task.id, { 
-      title: task.title, 
-      description: task.description || undefined 
+  const handleDeleteList = async () => {
+    const ok = await confirm({
+      title: 'Delete List',
+      message: `Are you sure you want to delete "${list.title}" and all its tasks?`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
     });
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    await deleteTask(taskId);
+    if (ok) deleteList(list.id);
   };
 
   return (
@@ -117,7 +98,6 @@ const { ref: sortableRef, isDropTarget } = useSortable({
       }}
       className={`flex-shrink-0 w-80 border-4 border-black bg-white transition-colors ${isOverTaskArea ? 'ring-4 ring-black ring-inset bg-gray-50' : ''}`}
     >
-     
       <div className="p-4 border-b-4 border-black flex items-center justify-between group">
         {isEditingTitle ? (
           <input
@@ -137,7 +117,7 @@ const { ref: sortableRef, isDropTarget } = useSortable({
           />
         ) : (
           <>
-            <h3 
+            <h3
               className="text-lg font-bold text-black cursor-pointer hover:bg-black/5 px-1 rounded transition-colors flex-1"
               onDoubleClick={() => setIsEditingTitle(true)}
               title="Double click to edit title"
@@ -157,7 +137,6 @@ const { ref: sortableRef, isDropTarget } = useSortable({
         )}
       </div>
 
- 
       <div className={`p-4 space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto transition-all duration-300 min-h-[100px] ${isOverTaskArea ? 'pb-24' : 'pb-4'}`}>
         {tasks.map((task, taskIndex) => (
           <TaskCard
@@ -218,16 +197,6 @@ const { ref: sortableRef, isDropTarget } = useSortable({
           </Button>
         )}
       </div>
-
-      {selectedTask && (
-        <TaskDialog
-          task={selectedTask}
-          isOpen={isTaskDialogOpen}
-          onClose={handleCloseDialog}
-          onUpdate={handleUpdateTask}
-          onDelete={handleDeleteTask}
-        />
-      )}
     </div>
   );
 }

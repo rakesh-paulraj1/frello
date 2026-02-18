@@ -1,0 +1,20 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const tasks_controller_1 = require("../controllers/tasks.controller");
+const passport_1 = __importDefault(require("passport"));
+const router = (0, express_1.Router)();
+const ctrl = new tasks_controller_1.TasksController();
+router.get('/lists/:listId/tasks', passport_1.default.authenticate('jwt', { session: false }), ctrl.list.bind(ctrl));
+router.get('/boards/:boardId/tasks', passport_1.default.authenticate('jwt', { session: false }), ctrl.listByBoard.bind(ctrl));
+router.post('/lists/:listId/tasks', passport_1.default.authenticate('jwt', { session: false }), ctrl.create.bind(ctrl));
+router.get('/tasks/:id', passport_1.default.authenticate('jwt', { session: false }), ctrl.get.bind(ctrl));
+router.put('/tasks/:id', passport_1.default.authenticate('jwt', { session: false }), ctrl.update.bind(ctrl));
+router.delete('/tasks/:id', passport_1.default.authenticate('jwt', { session: false }), ctrl.remove.bind(ctrl));
+router.put('/tasks/:id/move', passport_1.default.authenticate('jwt', { session: false }), ctrl.move.bind(ctrl));
+router.post('/tasks/:id/assign', passport_1.default.authenticate('jwt', { session: false }), ctrl.assign.bind(ctrl));
+router.delete('/tasks/:id/assign/:userId', passport_1.default.authenticate('jwt', { session: false }), ctrl.unassign.bind(ctrl));
+exports.default = router;

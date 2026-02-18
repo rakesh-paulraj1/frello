@@ -1,0 +1,26 @@
+.DS_Store
+.env
+.env.*
+.env.local
+node_modules/
+**/node_modules/
+/backend/node_modules/
+/frontend/node_modules/
+
+# Generated or build folders
+/dist/
+/build/
+
+# OS/editor
+.vscode/
+.idea/
+
+# Prisma generated client
+/backend/src/generated/
+/backend/generated/
+/frontend/.parcel-cache/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
