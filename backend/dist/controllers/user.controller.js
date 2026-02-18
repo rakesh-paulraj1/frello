@@ -72,7 +72,6 @@ class Usercontroller {
                     res
                         .status(200)
                         .json({
-                        token,
                         user: { id: user.id, name: user.name, email: user.email },
                     });
                 }

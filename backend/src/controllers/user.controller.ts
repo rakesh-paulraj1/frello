@@ -7,10 +7,12 @@ import { prisma } from "../config/prisma";
 function cookieOptions() {
   return {
     httpOnly: true,
-    sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "none" as const, 
+    secure: true,
+    path: "/",                
   };
 }
+
 
 export class Usercontroller {
   public async signup(req: Request, res: Response): Promise<void> {
