@@ -4,6 +4,7 @@ export interface Board {
   id: string;
   title: string;
   userId: string;
+  isPublic: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -14,8 +15,8 @@ export interface CreateBoardRequest {
 
 export const boardService = {
   getBoards: async (): Promise<Board[]> => {
-    const response = await api.get<Board[]>("/boards");
-    return response.data;
+    const response = await api.get<{ data: Board[] }>("/boards");
+    return response.data.data;
   },
 
   createBoard: async (data: CreateBoardRequest): Promise<Board> => {
@@ -24,8 +25,9 @@ export const boardService = {
   },
 
   getBoard: async (id: string): Promise<Board> => {
-    const response = await api.get<Board>(`/boards/${id}`);
-    return response.data;
+    const response = await api.get<{ data: Board } | Board>(`/boards/${id}`);
+    // Handle both nested and non-nested responses
+    return "data" in response.data ? response.data.data : response.data;
   },
 
   updateBoard: async (

@@ -38,7 +38,7 @@ export const Dialog: React.FC<DialogProps> = ({ isOpen, onClose, title, children
   return (
     <dialog 
       ref={dialogRef} 
-      className="rounded-xl border border-gray-200 shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm p-0 min-w-[400px] bg-white"
+      className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] backdrop:bg-black/50 backdrop:backdrop-blur-sm p-0 min-w-[400px] bg-white outline-none"
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
     >

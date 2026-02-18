@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import Button from './Button';
 import { useAuthStore } from '../store/authStore';
 import { authService } from '../services/authService';
@@ -9,6 +10,7 @@ interface SignUpFormProps {
 }
 
 export default function SignUpForm({ onSwitchToSignIn }: SignUpFormProps) {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -27,7 +29,7 @@ export default function SignUpForm({ onSwitchToSignIn }: SignUpFormProps) {
     try {
       const response = await authService.signup(formData);
       setAuth(response.user);
-      window.location.href = '/dashboard';
+      navigate('/dashboard');
     } catch (err) {
       setError(err as Error);
       setIsLoading(false);

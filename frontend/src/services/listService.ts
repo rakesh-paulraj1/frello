@@ -14,24 +14,38 @@ export interface CreateListRequest {
 }
 
 export const listService = {
-  createList: async (data: CreateListRequest): Promise<List> => {
-    const response = await api.post<List>("/lists", data);
+ 
+  getLists: async (boardId: string): Promise<List[]> => {
+    const response = await api.get<{ data: List[] }>(
+      `/boards/${boardId}/lists`,
+    );
+    return response.data.data;
+  },
+
+  // Create a new list
+  createList: async (boardId: string, title: string): Promise<List> => {
+    const response = await api.post<List>(`/boards/${boardId}/lists`, {
+      title,
+    });
     return response.data;
   },
 
+  // Update list title
   updateList: async (
     id: string,
-    data: Partial<CreateListRequest>,
+    data: Partial<{ title: string }>,
   ): Promise<List> => {
     const response = await api.put<List>(`/lists/${id}`, data);
     return response.data;
   },
 
+  // Delete a list
   deleteList: async (id: string): Promise<void> => {
     await api.delete(`/lists/${id}`);
   },
 
-  reorderLists: async (boardId: string, listIds: string[]): Promise<void> => {
-    await api.put(`/boards/${boardId}/lists/reorder`, { listIds });
+  // Reorder a single list
+  reorderList: async (listId: string, position: number): Promise<void> => {
+    await api.put(`/lists/${listId}/reorder`, { position });
   },
 };

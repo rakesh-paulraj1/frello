@@ -1,35 +1,60 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSortable } from '@dnd-kit/react/sortable';
+import {CollisionPriority} from '@dnd-kit/abstract';
 import Button from './Button';
-import Task from './Task';
+import TaskCard from './TaskCard';
+import TaskDialog from './TaskDialog';
 import { type List as ListType } from '../services/listService';
-import { type Task as TaskType, taskService } from '../services/taskService';
+import { type Task as TaskType } from '../services/taskService';
+import { useListStore } from '../store/listStore';
+import { useTaskStore } from '../store/taskStore';
 
 interface ListProps {
   list: ListType;
   tasks: TaskType[];
   index: number;
-  onUpdateList: (list: ListType) => void;
-  onDeleteList: (listId: string) => void;
-  onCreateTask: (task: TaskType) => void;
-  onUpdateTask: (task: TaskType) => void;
-  onDeleteTask: (taskId: string) => void;
+  activeGroup: string | null;
+  activeDragType?: string | null;
+  onOverChange?: (listId: string, isOver: boolean) => void;
+  containerRef?: React.Ref<HTMLDivElement>;
 }
 
 export default function List({
   list,
   tasks,
   index,
-  onUpdateList,
-  onDeleteList,
-  onCreateTask,
-  onUpdateTask,
-  onDeleteTask,
+  activeGroup,
+  activeDragType,
+  onOverChange,
+  containerRef,
 }: ListProps) {
-  const { ref } = useSortable({ id: list.id, index });
+  const { updateList, deleteList } = useListStore();
+  const { createTask, updateTask, deleteTask } = useTaskStore();
+  
+ // Fix - add accept
+const { ref: sortableRef, isDropTarget } = useSortable({ 
+  id: list.id, 
+  index,
+  type: 'column',
+  accept: ['column', 'task'],  // Accept tasks so empty columns are valid drop targets
+  collisionPriority: CollisionPriority.Low,
+  data: { type: 'column', listId: list.id },
+});
+
+
+  const isOverTaskArea = isDropTarget && (activeGroup ? activeGroup === list.id : true);
+
+  useEffect(() => {
+    if (onOverChange) onOverChange(list.id, Boolean(isDropTarget));
+  }, [isDropTarget, list.id, onOverChange]);
+  
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<TaskType | null>(null);
+  const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(list.title);
 
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,12 +62,7 @@ export default function List({
 
     setIsLoading(true);
     try {
-      const newTask = await taskService.createTask({
-        listId: list.id,
-        title: newTaskTitle.trim(),
-        position: tasks.length,
-      });
-      onCreateTask(newTask);
+      await createTask(list.id, newTaskTitle.trim());
       setNewTaskTitle('');
       setIsAddingTask(false);
     } catch (error) {
@@ -52,29 +72,107 @@ export default function List({
     }
   };
 
+  const handleTaskClick = (task: TaskType) => {
+    setSelectedTask(task);
+    setIsTaskDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setIsTaskDialogOpen(false);
+    setSelectedTask(null);
+  };
+
+  const handleSaveTitle = async () => {
+    if (!editedTitle.trim() || editedTitle === list.title) {
+      setIsEditingTitle(false);
+      setEditedTitle(list.title);
+      return;
+    }
+
+    await updateList(list.id, { title: editedTitle.trim() });
+    setIsEditingTitle(false);
+  };
+
+  const handleDeleteList = () => {
+    if (confirm(`Are you sure you want to delete the list "${list.title}"?`)) {
+      deleteList(list.id);
+    }
+  };
+
+  const handleUpdateTask = async (task: TaskType) => {
+    await updateTask(task.id, { 
+      title: task.title, 
+      description: task.description || undefined 
+    });
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    await deleteTask(taskId);
+  };
+
   return (
     <div
-      ref={ref}
-      className="flex-shrink-0 w-80 border-4 border-black bg-white"
+      ref={(node) => {
+        if (typeof sortableRef === 'function') sortableRef(node);
+      }}
+      className={`flex-shrink-0 w-80 border-4 border-black bg-white transition-colors ${isOverTaskArea ? 'ring-4 ring-black ring-inset bg-gray-50' : ''}`}
     >
-      {/* List Header */}
-      <div className="p-4 border-b-4 border-black">
-        <h3 className="text-lg font-bold text-black">{list.title}</h3>
+     
+      <div className="p-4 border-b-4 border-black flex items-center justify-between group">
+        {isEditingTitle ? (
+          <input
+            type="text"
+            value={editedTitle}
+            onChange={(e) => setEditedTitle(e.target.value)}
+            onBlur={handleSaveTitle}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSaveTitle();
+              if (e.key === 'Escape') {
+                setIsEditingTitle(false);
+                setEditedTitle(list.title);
+              }
+            }}
+            className="text-lg font-bold text-black border-2 border-black px-2 py-0.5 w-full focus:outline-none bg-white"
+            autoFocus
+          />
+        ) : (
+          <>
+            <h3 
+              className="text-lg font-bold text-black cursor-pointer hover:bg-black/5 px-1 rounded transition-colors flex-1"
+              onDoubleClick={() => setIsEditingTitle(true)}
+              title="Double click to edit title"
+            >
+              {list.title}
+            </h3>
+            <button
+              onClick={handleDeleteList}
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-600 rounded transition-all"
+              title="Delete list"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Tasks */}
-      <div className="p-4 space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
+ 
+      <div className={`p-4 space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto transition-all duration-300 min-h-[100px] ${isOverTaskArea ? 'pb-24' : 'pb-4'}`}>
         {tasks.map((task, taskIndex) => (
-          <Task
+          <TaskCard
             key={task.id}
             task={task}
             index={taskIndex}
-            onUpdate={onUpdateTask}
-            onDelete={onDeleteTask}
+            onClick={() => handleTaskClick(task)}
           />
         ))}
+        {isOverTaskArea && (
+          <div className="border-2 border-dashed border-black/10 bg-black/[0.02] h-20 rounded-lg flex items-center justify-center transition-all animate-in fade-in zoom-in duration-300">
+            <span className="text-gray-400 text-sm font-medium">Drop here</span>
+          </div>
+        )}
 
-        {/* Add Task Form */}
         {isAddingTask ? (
           <form onSubmit={handleAddTask} className="space-y-2">
             <input
@@ -120,6 +218,16 @@ export default function List({
           </Button>
         )}
       </div>
+
+      {selectedTask && (
+        <TaskDialog
+          task={selectedTask}
+          isOpen={isTaskDialogOpen}
+          onClose={handleCloseDialog}
+          onUpdate={handleUpdateTask}
+          onDelete={handleDeleteTask}
+        />
+      )}
     </div>
   );
 }

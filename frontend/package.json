@@ -10,9 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dnd-kit/helpers": "^0.3.0",
     "@dnd-kit/react": "^0.3.0",
+    "@dnd-kit/sortable": "^10.0.0",
     "@tailwindcss/vite": "^4.1.18",
     "axios": "^1.13.5",
+    "immer": "^11.1.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router": "^7.13.0",

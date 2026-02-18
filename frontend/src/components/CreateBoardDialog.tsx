@@ -41,7 +41,7 @@ export default function CreateBoardDialog({ isOpen, onClose, onCreateBoard }: Cr
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white border-4 border-black p-8 w-full max-w-md">
         <h2 className="text-2xl font-bold text-black mb-6">Create New Board</h2>
         

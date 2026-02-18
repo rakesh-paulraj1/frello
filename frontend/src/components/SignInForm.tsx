@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import Button from './Button';
 import { useAuthStore } from '../store/authStore';
 import { authService } from '../services/authService';
@@ -9,6 +10,7 @@ interface SignInFormProps {
 }
 
 export default function SignInForm({ onSwitchToSignUp }: SignInFormProps) {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -26,7 +28,7 @@ export default function SignInForm({ onSwitchToSignUp }: SignInFormProps) {
     try {
       const response = await authService.login(formData);
       setAuth(response.user);
-      window.location.href = '/dashboard';
+      navigate('/dashboard');
     } catch (err) {
       setError(err as Error);
       setIsLoading(false);
